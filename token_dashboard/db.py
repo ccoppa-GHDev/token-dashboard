@@ -83,6 +83,13 @@ def init_db(path: Union[str, Path]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as c:
+        # WAL mode lets the scanner write concurrently with API readers.
+        # Without it, the default rollback journal serializes writers against
+        # readers and the dashboard's six parallel boot queries hang behind
+        # the scanner's initial-scan transaction. WAL is a persistent
+        # per-database property — setting it once is enough.
+        c.execute("PRAGMA journal_mode = WAL")
+        c.execute("PRAGMA synchronous = NORMAL")
         _migrate_add_message_id(c)
         c.executescript(SCHEMA)
 
