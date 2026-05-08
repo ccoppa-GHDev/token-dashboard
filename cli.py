@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
 import webbrowser
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -73,15 +74,27 @@ def cmd_tips(args):
 def cmd_dashboard(args):
     db = _db_path(args)
     init_db(db)
-    if not args.no_scan:
-        scan_dir(_projects(args), db)
     from token_dashboard.server import run
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8080"))
     url = f"http://{host}:{port}/"
+
+    # The initial scan can take many seconds against a fresh DB. Run it in a
+    # daemon thread so the HTTP listener binds immediately; the server's own
+    # 30s _scan_loop will pick up incremental changes after.
+    if not args.no_scan:
+        threading.Thread(
+            target=lambda: scan_dir(_projects(args), db),
+            daemon=True,
+        ).start()
+
+    # Defer the browser open until the listener is actually bound. Without
+    # this, the browser races run() and can land on ECONNREFUSED, leaving a
+    # dead tab that needs manual reload.
     if not args.no_open:
-        webbrowser.open(url)
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+
     print(f"Token Dashboard listening on {url}")
     run(host, port, db, _projects(args))
 
