@@ -21,6 +21,17 @@ export const fmt = {
   },
   modelShort: m => (m || '').replace('claude-', ''),
   ts: t => (t || '').slice(0, 16).replace('T', ' '),
+  planCostLabel: meta => (meta && meta.is_subscription) ? 'share of plan' : 'cost',
+  planCostCell: row => {
+    const d = row && row.cost_display;
+    if (!d || d.api_cost_usd == null) return '';
+    const primary = '$' + Number(d.display_usd).toFixed(2);
+    if (d.is_subscription) {
+      const pct = ((d.share_of_plan || 0) * 100).toFixed(1);
+      return `${primary} <span class="muted" style="font-size:11px">(${pct}%)</span>`;
+    }
+    return primary;
+  },
 };
 
 export async function api(path, opts) {

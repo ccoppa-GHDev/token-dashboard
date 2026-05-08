@@ -34,7 +34,7 @@ export default async function (root) {
   const range = readRange();
   const since = sinceIso(range);
 
-  const [totals, projects, sessions, tools, daily, byModel] = await Promise.all([
+  const [totals, projectsResp, sessionsResp, tools, daily, byModel] = await Promise.all([
     api(withSince('/api/overview', since)),
     api(withSince('/api/projects', since)),
     api(withSince('/api/sessions?limit=10', since)),
@@ -42,6 +42,10 @@ export default async function (root) {
     api(withSince('/api/daily', since)),
     api(withSince('/api/by-model', since)),
   ]);
+  const projects = projectsResp.rows || [];
+  const sessions = sessionsResp.rows || [];
+  const sessionsMeta = sessionsResp._meta || {};
+  const recentCostLabel = fmt.planCostLabel(sessionsMeta);
 
   const cacheCreate =
     (totals.cache_create_5m_tokens || 0) +
@@ -74,9 +78,9 @@ export default async function (root) {
       ${kpi('Cache read',   fmt.compact(totals.cache_read_tokens),  fmt.int(totals.cache_read_tokens) + ' tokens')}
       ${kpi('Cache create', fmt.compact(cacheCreate),               fmt.int(cacheCreate) + ' tokens')}
       <div class="card kpi cost">
-        <div class="label">Est. cost</div>
-        <div class="value" title="${fmt.usd(totals.cost_usd)}">${fmt.usd(totals.cost_usd)}</div>
-        ${planSubtitle()}
+        <div class="label">${costKpiLabel(totals)}</div>
+        <div class="value" title="${costKpiTitle(totals)}">${costKpiValue(totals)}</div>
+        ${costKpiSubtitle(totals)}
       </div>
     </div>
 
@@ -120,14 +124,15 @@ export default async function (root) {
       <div class="card">
         <h3 style="display:flex;align-items:center"><span>Recent sessions</span><span class="spacer"></span><a href="#/sessions" style="font-weight:400;font-size:12px">all →</a></h3>
         <table>
-          <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
+          <thead><tr><th>started</th><th>project</th><th class="num">tokens</th><th class="num">${recentCostLabel}</th></tr></thead>
           <tbody>
             ${sessions.map(s => `
               <tr>
                 <td class="mono">${fmt.ts(s.started)}</td>
                 <td><a href="#/sessions/${encodeURIComponent(s.session_id)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</a></td>
                 <td class="num">${fmt.compact(s.tokens)}</td>
-              </tr>`).join('') || '<tr><td colspan="3" class="muted">no sessions in this range</td></tr>'}
+                <td class="num">${fmt.planCostCell(s)}</td>
+              </tr>`).join('') || '<tr><td colspan="4" class="muted">no sessions in this range</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -188,9 +193,31 @@ export default async function (root) {
   });
 }
 
-function planSubtitle() {
-  if (!state.pricing || state.plan === 'api') return '';
-  const p = state.pricing.plans[state.plan];
-  if (!p || !p.monthly) return '';
-  return `<div class="sub">pay $${p.monthly}/mo on ${fmt.htmlSafe(p.label)}</div>`;
+function costKpiLabel(totals) {
+  const d = totals.cost_display;
+  return d && d.is_subscription ? `${fmt.htmlSafe(d.plan_label)} plan` : 'Est. cost';
+}
+
+function costKpiValue(totals) {
+  const d = totals.cost_display;
+  if (d && d.is_subscription) {
+    return `${fmt.usd(d.display_usd)}${d.display_suffix || ''}`;
+  }
+  return fmt.usd(totals.cost_usd);
+}
+
+function costKpiTitle(totals) {
+  const d = totals.cost_display;
+  if (d && d.is_subscription) {
+    return `${fmt.usd(d.monthly_fee)}/mo — ${fmt.usd(d.api_cost_usd)} API-equivalent this period`;
+  }
+  return fmt.usd(totals.cost_usd);
+}
+
+function costKpiSubtitle(totals) {
+  const d = totals.cost_display;
+  if (d && d.subtitle) {
+    return `<div class="sub">${fmt.htmlSafe(d.subtitle)}</div>`;
+  }
+  return '';
 }

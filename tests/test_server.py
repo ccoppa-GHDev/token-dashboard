@@ -53,10 +53,46 @@ class ServerTests(unittest.TestCase):
         body = json.loads(self._get("/api/prompts?limit=10"))
         self.assertIsInstance(body, list)
 
-    def test_projects_json(self):
+    def test_projects_json_has_rows_and_meta(self):
         body = json.loads(self._get("/api/projects"))
-        self.assertIsInstance(body, list)
-        self.assertEqual(body[0]["project_slug"], "p")
+        self.assertIn("rows", body)
+        self.assertIn("_meta", body)
+        self.assertEqual(body["rows"][0]["project_slug"], "p")
+        self.assertIn("api_cost_usd", body["rows"][0])
+        self.assertIn("cost_display", body["rows"][0])
+        self.assertIn("months_in_range", body["_meta"])
+        self.assertIn("total_api_cost_usd", body["_meta"])
+
+    def test_projects_cost_changes_with_plan(self):
+        def _post(path, payload):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}{path}",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req).read()
+
+        _post("/api/plan", {"plan": "api"})
+        api_body = json.loads(self._get("/api/projects"))
+        _post("/api/plan", {"plan": "max"})
+        max_body = json.loads(self._get("/api/projects"))
+
+        self.assertFalse(api_body["_meta"]["is_subscription"])
+        self.assertTrue(max_body["_meta"]["is_subscription"])
+
+        api_cost = api_body["rows"][0]["cost_display"]["display_usd"]
+        max_cost = max_body["rows"][0]["cost_display"]["display_usd"]
+        # On API plan the display is the raw API cost; on Max it's the allocated share.
+        # With a single project in the fixture, Max allocates the full monthly fee × months.
+        self.assertEqual(max_body["rows"][0]["cost_display"]["share_of_plan"], 1.0)
+        self.assertNotEqual(api_cost, max_cost)
+
+    def test_sessions_json_has_rows_and_meta(self):
+        body = json.loads(self._get("/api/sessions?limit=5"))
+        self.assertIn("rows", body)
+        self.assertIn("_meta", body)
+        self.assertIn("cost_display", body["rows"][0])
 
     def test_plan_json(self):
         body = json.loads(self._get("/api/plan"))

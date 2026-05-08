@@ -202,6 +202,77 @@ def overview_totals(db_path, since=None, until=None) -> dict:
         return dict(c.execute(sql, args).fetchone())
 
 
+def months_with_activity(db_path, since=None, until=None) -> int:
+    """Distinct YYYY-MM months with at least one message in range. Min 1."""
+    rng, args = _range_clause(since, until)
+    sql = f"""
+      SELECT COUNT(DISTINCT strftime('%Y-%m', timestamp)) AS months
+        FROM messages
+       WHERE timestamp IS NOT NULL {rng}
+    """
+    with connect(db_path) as c:
+        row = c.execute(sql, args).fetchone()
+    return max(1, int(row["months"] or 0))
+
+
+def project_model_costs(db_path, since=None, until=None) -> dict:
+    """Per-(project, model) token aggregates for API-cost computation.
+
+    Returns {project_slug: [{model, input_tokens, output_tokens, cache_read_tokens,
+                             cache_create_5m_tokens, cache_create_1h_tokens}, ...]}.
+    """
+    rng, args = _range_clause(since, until)
+    sql = f"""
+      SELECT project_slug,
+             COALESCE(model, 'unknown') AS model,
+             COALESCE(SUM(input_tokens),0)            AS input_tokens,
+             COALESCE(SUM(output_tokens),0)           AS output_tokens,
+             COALESCE(SUM(cache_read_tokens),0)       AS cache_read_tokens,
+             COALESCE(SUM(cache_create_5m_tokens),0)  AS cache_create_5m_tokens,
+             COALESCE(SUM(cache_create_1h_tokens),0)  AS cache_create_1h_tokens
+        FROM messages
+       WHERE type = 'assistant' {rng}
+       GROUP BY project_slug, model
+    """
+    result: dict = {}
+    with connect(db_path) as c:
+        for r in c.execute(sql, args):
+            result.setdefault(r["project_slug"], []).append(dict(r))
+    return result
+
+
+def session_model_costs(db_path, session_ids=None) -> dict:
+    """Per-(session, model) token aggregates for API-cost computation.
+
+    Optionally restricted to a caller-supplied list of session ids to avoid
+    scanning every session when the caller only needs the top N.
+    Returns {session_id: [{model, input_tokens, ...}, ...]}.
+    """
+    args: list = []
+    where = "type = 'assistant'"
+    if session_ids:
+        placeholders = ",".join("?" * len(session_ids))
+        where += f" AND session_id IN ({placeholders})"
+        args.extend(session_ids)
+    sql = f"""
+      SELECT session_id,
+             COALESCE(model, 'unknown') AS model,
+             COALESCE(SUM(input_tokens),0)            AS input_tokens,
+             COALESCE(SUM(output_tokens),0)           AS output_tokens,
+             COALESCE(SUM(cache_read_tokens),0)       AS cache_read_tokens,
+             COALESCE(SUM(cache_create_5m_tokens),0)  AS cache_create_5m_tokens,
+             COALESCE(SUM(cache_create_1h_tokens),0)  AS cache_create_1h_tokens
+        FROM messages
+       WHERE {where}
+       GROUP BY session_id, model
+    """
+    result: dict = {}
+    with connect(db_path) as c:
+        for r in c.execute(sql, args):
+            result.setdefault(r["session_id"], []).append(dict(r))
+    return result
+
+
 def expensive_prompts(db_path, limit: int = 50, sort: str = "tokens") -> list:
     """User prompt joined with the immediately-following assistant turn's tokens.
 

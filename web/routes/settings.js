@@ -7,7 +7,7 @@ export default async function (root) {
     <div class="card">
       <h2>Settings</h2>
       <h3 style="margin-top:16px">Plan</h3>
-      <p class="muted" style="margin:0 0 12px">Sets how cost is displayed. API mode shows pay-per-token rates. Subscription modes show what you actually pay each month.</p>
+      <p class="muted" style="margin:0 0 12px">Changes the Overview "Est. cost" KPI. <b>API</b> shows pay-per-token totals. <b>Pro / Max / Max 20x</b> show your flat monthly fee as the headline, with your API-equivalent usage shown beneath so you can see how much you're saving. Per-prompt and per-model costs on other tabs are always shown at API rates — those don't have a meaningful subscription equivalent.</p>
       <div class="flex">
         <select id="plan">
           ${plans.map(([k,v]) => `<option value="${k}" ${k===cur.plan?'selected':''}>${v.label}${v.monthly?` — $${v.monthly}/mo`:''}</option>`).join('')}

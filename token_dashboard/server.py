@@ -14,8 +14,9 @@ from .db import (
     overview_totals, expensive_prompts, project_summary,
     tool_token_breakdown, recent_sessions, session_turns,
     daily_token_breakdown, model_breakdown, skill_breakdown,
+    months_with_activity, project_model_costs, session_model_costs,
 )
-from .pricing import load_pricing, cost_for, get_plan, set_plan
+from .pricing import load_pricing, cost_for, format_allocation, format_for_user, get_plan, set_plan
 from .tips import all_tips, dismiss_tip
 from .scanner import scan_dir
 from .skills import cached_catalog
@@ -95,7 +96,9 @@ def build_handler(db_path: str, projects_dir: str):
                     c = cost_for(m["model"], m, pricing)
                     if c["usd"] is not None:
                         cost_usd += c["usd"]
-                totals["cost_usd"] = round(cost_usd, 4)
+                cost_usd = round(cost_usd, 4)
+                totals["cost_usd"] = cost_usd
+                totals["cost_display"] = format_for_user(cost_usd, get_plan(db_path), pricing)
                 return _send_json(self, totals)
             if path == "/api/prompts":
                 limit = _clamp_limit(qs.get("limit", ["50"])[0], 50)
@@ -110,14 +113,78 @@ def build_handler(db_path: str, projects_dir: str):
                     r["estimated_cost_usd"] = c["usd"]
                 return _send_json(self, rows)
             if path == "/api/projects":
-                return _send_json(self, project_summary(db_path, since, until))
+                rows = project_summary(db_path, since, until)
+                costs_by_slug = project_model_costs(db_path, since, until)
+                total_api_cost = 0.0
+                for r in rows:
+                    row_cost = 0.0
+                    for m in costs_by_slug.get(r["project_slug"], []):
+                        c = cost_for(m["model"], m, pricing)
+                        if c["usd"] is not None:
+                            row_cost += c["usd"]
+                    r["api_cost_usd"] = row_cost
+                    total_api_cost += row_cost
+                plan = get_plan(db_path)
+                months = months_with_activity(db_path, since, until)
+                for r in rows:
+                    r["cost_display"] = format_allocation(
+                        r["api_cost_usd"], total_api_cost, plan, pricing, months,
+                    )
+                plan_info = pricing["plans"].get(plan, pricing["plans"]["api"])
+                monthly = plan_info.get("monthly") or 0
+                meta = {
+                    "plan": plan,
+                    "plan_label": plan_info.get("label", plan),
+                    "monthly_fee": monthly,
+                    "months_in_range": months,
+                    "total_api_cost_usd": total_api_cost,
+                    "total_paid_usd": float(monthly) * months,
+                    "is_subscription": plan != "api" and monthly > 0,
+                }
+                return _send_json(self, {"rows": rows, "_meta": meta})
             if path == "/api/tools":
                 return _send_json(self, tool_token_breakdown(db_path, since, until))
             if path == "/api/sessions":
-                return _send_json(self, recent_sessions(
+                rows = recent_sessions(
                     db_path, limit=_clamp_limit(qs.get("limit", ["20"])[0], 20),
                     since=since, until=until,
-                ))
+                )
+                ids = [r["session_id"] for r in rows]
+                costs_by_sid = session_model_costs(db_path, session_ids=ids) if ids else {}
+                # Denominator is the total across the full range, not just the
+                # sessions in this page — otherwise small pages would over-
+                # allocate per session.
+                total_api_cost = 0.0
+                for models in project_model_costs(db_path, since, until).values():
+                    for m in models:
+                        c = cost_for(m["model"], m, pricing)
+                        if c["usd"] is not None:
+                            total_api_cost += c["usd"]
+                for r in rows:
+                    row_cost = 0.0
+                    for m in costs_by_sid.get(r["session_id"], []):
+                        c = cost_for(m["model"], m, pricing)
+                        if c["usd"] is not None:
+                            row_cost += c["usd"]
+                    r["api_cost_usd"] = row_cost
+                plan = get_plan(db_path)
+                months = months_with_activity(db_path, since, until)
+                for r in rows:
+                    r["cost_display"] = format_allocation(
+                        r["api_cost_usd"], total_api_cost, plan, pricing, months,
+                    )
+                plan_info = pricing["plans"].get(plan, pricing["plans"]["api"])
+                monthly = plan_info.get("monthly") or 0
+                meta = {
+                    "plan": plan,
+                    "plan_label": plan_info.get("label", plan),
+                    "monthly_fee": monthly,
+                    "months_in_range": months,
+                    "total_api_cost_usd": total_api_cost,
+                    "total_paid_usd": float(monthly) * months,
+                    "is_subscription": plan != "api" and monthly > 0,
+                }
+                return _send_json(self, {"rows": rows, "_meta": meta})
             if path == "/api/daily":
                 return _send_json(self, daily_token_breakdown(db_path, since, until))
             if path == "/api/skills":

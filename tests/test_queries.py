@@ -7,7 +7,8 @@ from token_dashboard.db import (
     overview_totals, expensive_prompts, project_summary,
     tool_token_breakdown, recent_sessions, session_turns,
     daily_token_breakdown, model_breakdown, project_name_for,
-    skill_breakdown,
+    skill_breakdown, months_with_activity, project_model_costs,
+    session_model_costs,
 )
 
 
@@ -93,6 +94,41 @@ class QueryTests(unittest.TestCase):
         filtered = model_breakdown(self.db, since="2026-04-11T00:00:00Z")
         names = [r["model"] for r in filtered]
         self.assertEqual(names, ["claude-sonnet-4-6"])
+
+    def test_months_with_activity_all_same_month(self):
+        self.assertEqual(months_with_activity(self.db), 1)
+
+    def test_months_with_activity_returns_at_least_one_for_empty(self):
+        # Add no rows to a fresh db — still returns 1 per spec.
+        tmp = tempfile.mkdtemp()
+        empty = os.path.join(tmp, "empty.db")
+        init_db(empty)
+        self.assertEqual(months_with_activity(empty), 1)
+
+    def test_months_with_activity_counts_distinct_months(self):
+        with connect(self.db) as c:
+            c.executescript("""
+            INSERT INTO messages (uuid, session_id, project_slug, type, timestamp)
+            VALUES ('u3','s3','projA','user','2026-05-02T00:00:00Z'),
+                   ('u4','s4','projA','user','2026-06-15T00:00:00Z');
+            """)
+            c.commit()
+        self.assertEqual(months_with_activity(self.db), 3)
+
+    def test_project_model_costs_groups_by_project_and_model(self):
+        costs = project_model_costs(self.db)
+        self.assertIn("projA", costs)
+        self.assertIn("projB", costs)
+        a_models = {m["model"]: m for m in costs["projA"]}
+        self.assertEqual(a_models["claude-opus-4-7"]["input_tokens"], 100)
+        self.assertEqual(a_models["claude-opus-4-7"]["output_tokens"], 200)
+        self.assertEqual(a_models["claude-opus-4-7"]["cache_read_tokens"], 300)
+
+    def test_session_model_costs_scoped_to_supplied_ids(self):
+        costs = session_model_costs(self.db, session_ids=["s1"])
+        self.assertIn("s1", costs)
+        self.assertNotIn("s2", costs)
+        self.assertEqual(costs["s1"][0]["model"], "claude-opus-4-7")
 
 
 class SkillBreakdownTests(unittest.TestCase):

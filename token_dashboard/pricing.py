@@ -53,12 +53,69 @@ def set_plan(db_path: Union[str, Path], plan: str) -> None:
         c.commit()
 
 
-def format_for_user(api_cost_usd: float, plan: str, pricing: dict) -> dict:
+def format_allocation(
+    row_api_cost: float,
+    total_api_cost: float,
+    plan: str,
+    pricing: dict,
+    months_in_range: int,
+) -> dict:
+    """Per-row plan-aware cost display (project, session, etc.).
+
+    For API plan: display the row's own API-equivalent cost.
+    For subscription plans: display the row's allocated share of what the user
+    actually paid in the range, weighted by the row's share of total API cost.
+    """
     p = pricing["plans"].get(plan, pricing["plans"]["api"])
-    if plan == "api" or p["monthly"] == 0:
-        return {"display_usd": api_cost_usd, "subtitle": None, "subscription_usd": None}
+    monthly = p.get("monthly") or 0
+    label = p.get("label", plan)
+    if plan == "api" or monthly == 0:
+        return {
+            "api_cost_usd":    row_api_cost,
+            "display_usd":     row_api_cost,
+            "display_suffix":  None,
+            "share_of_plan":   None,
+            "is_subscription": False,
+            "plan_label":      label,
+        }
+    total_paid = float(monthly) * max(1, int(months_in_range))
+    share = (row_api_cost / total_api_cost) if total_api_cost > 0 else 0.0
     return {
-        "display_usd":      api_cost_usd,
-        "subtitle":         f"You pay ${p['monthly']}/mo on {p['label']}",
-        "subscription_usd": p["monthly"],
+        "api_cost_usd":    row_api_cost,
+        "display_usd":     round(total_paid * share, 4),
+        "display_suffix":  None,
+        "share_of_plan":   round(share, 6),
+        "is_subscription": True,
+        "plan_label":      label,
+    }
+
+
+def format_for_user(api_cost_usd: float, plan: str, pricing: dict) -> dict:
+    """Translate a period's API-equivalent cost into a plan-aware display shape.
+
+    For the API plan, the headline $ is the API cost itself.
+    For subscription plans, the headline $ is the flat monthly fee and the
+    API-equivalent cost is surfaced in a subtitle so the user can compare.
+    """
+    p = pricing["plans"].get(plan, pricing["plans"]["api"])
+    monthly = p.get("monthly") or 0
+    label = p.get("label", plan)
+    if plan == "api" or monthly == 0:
+        return {
+            "api_cost_usd":    api_cost_usd,
+            "display_usd":     api_cost_usd,
+            "display_suffix":  None,
+            "subtitle":        None,
+            "plan_label":      label,
+            "is_subscription": False,
+            "monthly_fee":     0,
+        }
+    return {
+        "api_cost_usd":    api_cost_usd,
+        "display_usd":     float(monthly),
+        "display_suffix":  "/mo",
+        "subtitle":        f"${api_cost_usd:,.2f} API-equivalent this period",
+        "plan_label":      label,
+        "is_subscription": True,
+        "monthly_fee":     monthly,
     }
