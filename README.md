@@ -66,6 +66,7 @@ python3 cli.py dashboard --projects-dir /path/to/projects --db /path/to/cache.db
 | `HOST` | `127.0.0.1` | Bind address. Keep the default. Setting `0.0.0.0` exposes your entire prompt history to anyone on your local network — don't do this on any network you don't fully control (no coffee-shop Wi-Fi, no coworking spaces). |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where to scan for session JSONL files |
 | `TOKEN_DASHBOARD_DB` | `~/.claude/token-dashboard.db` | SQLite cache location |
+| `ANTHROPIC_ADMIN_API_KEY` | _(unset)_ | Optional. Powers the Workspaces tab via the Anthropic Admin API. Without it, the rest of the dashboard works unchanged; the Workspaces tab shows a clear "set this var" message on refresh. Create one at [console.anthropic.com](https://console.anthropic.com) → Settings → Admin Keys. |
 
 Pricing lives in [`pricing.json`](pricing.json). Edit it directly if model prices change or to add a new plan.
 

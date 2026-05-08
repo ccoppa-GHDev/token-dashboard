@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "is_subscription": false,
+    "monthly_fee": 0,
+    "months_in_range": 1,
+    "plan": "api",
+    "plan_label": "API (pay-per-token)",
+    "total_api_cost_usd": 0.007679999999999999,
+    "total_paid_usd": 0.0
+  },
+  "rows": [
+    {
+      "api_cost_usd": 0.0075699999999999995,
+      "billable_tokens": 505,
+      "cache_read_tokens": 300,
+      "cost_display": {
+        "api_cost_usd": 0.0075699999999999995,
+        "display_suffix": null,
+        "display_usd": 0.0075699999999999995,
+        "is_subscription": false,
+        "plan_label": "API (pay-per-token)",
+        "share_of_plan": null
+      },
+      "input_tokens": 140,
+      "output_tokens": 280,
+      "project_name": "projA",
+      "project_slug": "projA",
+      "sessions": 1,
+      "turns": 2
+    },
+    {
+      "api_cost_usd": 0.00011,
+      "billable_tokens": 30,
+      "cache_read_tokens": 0,
+      "cost_display": {
+        "api_cost_usd": 0.00011,
+        "display_suffix": null,
+        "display_usd": 0.00011,
+        "is_subscription": false,
+        "plan_label": "API (pay-per-token)",
+        "share_of_plan": null
+      },
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "project_name": "projB",
+      "project_slug": "projB",
+      "sessions": 1,
+      "turns": 1
+    }
+  ]
+}

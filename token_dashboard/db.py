@@ -72,6 +72,34 @@ CREATE TABLE IF NOT EXISTS dismissed_tips (
   tip_key       TEXT PRIMARY KEY,
   dismissed_at  REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workspaces (
+  workspace_id    TEXT PRIMARY KEY,
+  name            TEXT,
+  display_color   TEXT,
+  type            TEXT,
+  created_at      TEXT,
+  archived_at     TEXT,
+  last_synced_at  REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_usage (
+  workspace_id            TEXT NOT NULL,
+  api_key_id              TEXT NOT NULL,
+  model                   TEXT NOT NULL,
+  service_tier            TEXT NOT NULL,
+  bucket_start            TEXT NOT NULL,
+  input_tokens            INTEGER NOT NULL DEFAULT 0,  -- uncached input
+  output_tokens           INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens       INTEGER NOT NULL DEFAULT 0,
+  cache_create_5m_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_create_1h_tokens  INTEGER NOT NULL DEFAULT 0,
+  cost_usd                REAL    NOT NULL DEFAULT 0,  -- computed via pricing.cost_for at sync time
+  last_synced_at          REAL    NOT NULL,
+  PRIMARY KEY (workspace_id, api_key_id, model, service_tier, bucket_start)
+);
+CREATE INDEX IF NOT EXISTS idx_admin_usage_workspace ON admin_usage(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_admin_usage_bucket    ON admin_usage(bucket_start);
 """
 
 
@@ -452,3 +480,116 @@ def model_breakdown(db_path, since=None, until=None) -> list:
     """
     with connect(db_path) as c:
         return [dict(r) for r in c.execute(sql, args)]
+
+
+def upsert_workspaces(conn, workspaces: list, sync_ts: float) -> int:
+    """Idempotent upsert of workspaces from the Admin API. Caller commits."""
+    n = 0
+    for w in workspaces:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO workspaces
+              (workspace_id, name, display_color, type, created_at, archived_at, last_synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                w.get("id") or "",
+                w.get("name"),
+                w.get("display_color"),
+                w.get("type"),
+                w.get("created_at"),
+                w.get("archived_at"),
+                sync_ts,
+            ),
+        )
+        n += 1
+    return n
+
+
+def upsert_admin_usage(conn, rows: list, sync_ts: float) -> int:
+    """Idempotent upsert of admin-usage rows. Caller commits.
+
+    Each row is expected to carry: workspace_id, api_key_id, model, service_tier,
+    bucket_start, input_tokens (uncached), output_tokens, cache_read_tokens,
+    cache_create_5m_tokens, cache_create_1h_tokens, cost_usd. Missing keys default
+    to '' or 0. ``cost_usd`` is the caller's responsibility — compute it before
+    calling so the row carries authoritative pricing.
+    """
+    n = 0
+    for r in rows:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO admin_usage
+              (workspace_id, api_key_id, model, service_tier, bucket_start,
+               input_tokens, output_tokens,
+               cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
+               cost_usd, last_synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                r.get("workspace_id") or "",
+                r.get("api_key_id") or "",
+                r.get("model") or "",
+                r.get("service_tier") or "",
+                r.get("bucket_start") or "",
+                int(r.get("input_tokens") or 0),
+                int(r.get("output_tokens") or 0),
+                int(r.get("cache_read_tokens") or 0),
+                int(r.get("cache_create_5m_tokens") or 0),
+                int(r.get("cache_create_1h_tokens") or 0),
+                float(r.get("cost_usd") or 0.0),
+                sync_ts,
+            ),
+        )
+        n += 1
+    return n
+
+
+def workspaces_with_usage(db_path, since=None, until=None) -> list:
+    """Workspaces joined with aggregated usage in [since, until).
+
+    Returns one row per workspace, including those with zero activity in range.
+    ``cost_usd`` is summed from per-row pricing computed at sync time
+    (``pricing.cost_for`` against the Admin API tokens), not from the
+    cost_report endpoint — the cost_report rolls up org-level activity that
+    cannot be reliably split per-workspace.
+    """
+    rng, args = _range_clause(since, until, col="bucket_start")
+    sql = f"""
+      SELECT w.workspace_id,
+             w.name,
+             w.display_color,
+             w.type,
+             w.created_at,
+             w.archived_at,
+             w.last_synced_at,
+             COALESCE(SUM(u.input_tokens),0)            AS input_tokens,
+             COALESCE(SUM(u.output_tokens),0)           AS output_tokens,
+             COALESCE(SUM(u.cache_read_tokens),0)       AS cache_read_tokens,
+             COALESCE(SUM(u.cache_create_5m_tokens),0)  AS cache_create_5m_tokens,
+             COALESCE(SUM(u.cache_create_1h_tokens),0)  AS cache_create_1h_tokens,
+             COALESCE(SUM(u.cost_usd),0)                AS cost_usd,
+             MAX(u.bucket_start)                        AS last_activity
+        FROM workspaces w
+        LEFT JOIN admin_usage u
+          ON u.workspace_id = w.workspace_id
+         AND u.bucket_start IS NOT NULL {rng}
+       GROUP BY w.workspace_id
+       ORDER BY cost_usd DESC, w.name
+    """
+    with connect(db_path) as c:
+        return [dict(r) for r in c.execute(sql, args)]
+
+
+def last_admin_sync(db_path) -> Optional[float]:
+    """Most recent successful sync timestamp across both admin tables, or None."""
+    sql = """
+      SELECT MAX(ts) AS ts FROM (
+        SELECT MAX(last_synced_at) AS ts FROM workspaces
+        UNION ALL
+        SELECT MAX(last_synced_at) AS ts FROM admin_usage
+      )
+    """
+    with connect(db_path) as c:
+        row = c.execute(sql).fetchone()
+    return row["ts"] if row and row["ts"] is not None else None

@@ -1,0 +1,12 @@
+[
+  {
+    "calls": 1,
+    "result_tokens": 50,
+    "tool_name": "Read"
+  },
+  {
+    "calls": 1,
+    "result_tokens": 20,
+    "tool_name": "Write"
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "cache_create_1h_tokens": 25,
+  "cache_create_5m_tokens": 60,
+  "cache_read_tokens": 300,
+  "cost_display": {
+    "api_cost_usd": 0.0077,
+    "display_suffix": null,
+    "display_usd": 0.0077,
+    "is_subscription": false,
+    "monthly_fee": 0,
+    "plan_label": "API (pay-per-token)",
+    "subtitle": null
+  },
+  "cost_usd": 0.0077,
+  "input_tokens": 150,
+  "output_tokens": 300,
+  "sessions": 2,
+  "turns": 3
+}

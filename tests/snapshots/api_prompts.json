@@ -1,0 +1,41 @@
+[
+  {
+    "assistant_uuid": "a1",
+    "billable_tokens": 375,
+    "cache_read_tokens": 300,
+    "estimated_cost_usd": 0.00015,
+    "model": "claude-opus-4-7",
+    "project_slug": "projA",
+    "prompt_chars": 16,
+    "prompt_text": "analyze the repo",
+    "session_id": "s1",
+    "timestamp": "2026-04-19T00:00:00Z",
+    "user_uuid": "u1"
+  },
+  {
+    "assistant_uuid": "a2",
+    "billable_tokens": 130,
+    "cache_read_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "model": "claude-sonnet-4-6",
+    "project_slug": "projA",
+    "prompt_chars": 11,
+    "prompt_text": "fix the bug",
+    "session_id": "s1",
+    "timestamp": "2026-04-20T00:00:00Z",
+    "user_uuid": "u2"
+  },
+  {
+    "assistant_uuid": "a3",
+    "billable_tokens": 30,
+    "cache_read_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "model": "claude-haiku-4-5",
+    "project_slug": "projB",
+    "prompt_chars": 9,
+    "prompt_text": "summarize",
+    "session_id": "s2",
+    "timestamp": "2026-04-21T00:00:00Z",
+    "user_uuid": "u3"
+  }
+]

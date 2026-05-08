@@ -43,13 +43,14 @@ export async function api(path, opts) {
 export const state = { plan: 'api', pricing: null };
 
 const ROUTES = {
-  '/overview': () => import('/web/routes/overview.js'),
-  '/prompts':  () => import('/web/routes/prompts.js'),
-  '/sessions': () => import('/web/routes/sessions.js'),
-  '/projects': () => import('/web/routes/projects.js'),
-  '/skills':   () => import('/web/routes/skills.js'),
-  '/tips':     () => import('/web/routes/tips.js'),
-  '/settings': () => import('/web/routes/settings.js'),
+  '/overview':   () => import('/web/routes/overview.js'),
+  '/prompts':    () => import('/web/routes/prompts.js'),
+  '/sessions':   () => import('/web/routes/sessions.js'),
+  '/projects':   () => import('/web/routes/projects.js'),
+  '/skills':     () => import('/web/routes/skills.js'),
+  '/workspaces': () => import('/web/routes/workspaces.js'),
+  '/tips':       () => import('/web/routes/tips.js'),
+  '/settings':   () => import('/web/routes/settings.js'),
 };
 
 function buildTopbar() {

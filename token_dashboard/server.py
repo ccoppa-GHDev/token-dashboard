@@ -7,6 +7,7 @@ import mimetypes
 import queue
 import threading
 import time
+import urllib.error
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -15,11 +16,14 @@ from .db import (
     tool_token_breakdown, recent_sessions, session_turns,
     daily_token_breakdown, model_breakdown, skill_breakdown,
     months_with_activity, project_model_costs, session_model_costs,
+    workspaces_with_usage, last_admin_sync,
+    upsert_workspaces, upsert_admin_usage, connect,
 )
 from .pricing import load_pricing, cost_for, format_allocation, format_for_user, get_plan, set_plan
 from .tips import all_tips, dismiss_tip
 from .scanner import scan_dir
 from .skills import cached_catalog
+from . import admin_usage as admin_usage_client
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -208,6 +212,12 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, all_tips(db_path))
             if path == "/api/plan":
                 return _send_json(self, {"plan": get_plan(db_path), "pricing": pricing})
+            if path == "/api/workspaces":
+                rows = workspaces_with_usage(db_path, since, until)
+                return _send_json(self, {
+                    "rows": rows,
+                    "_meta": {"last_synced_at": last_admin_sync(db_path)},
+                })
             if path == "/api/scan":
                 n = scan_dir(projects_dir, db_path)
                 return _send_json(self, n)
@@ -251,6 +261,58 @@ def build_handler(db_path: str, projects_dir: str):
             if url.path == "/api/tips/dismiss":
                 dismiss_tip(db_path, body.get("key", ""))
                 return _send_json(self, {"ok": True})
+            if url.path == "/api/workspaces/refresh":
+                starting_at = body.get("starting_at")
+                ending_at = body.get("ending_at")
+                if not starting_at or not ending_at:
+                    return _send_error(self, 400, "starting_at and ending_at are required (RFC 3339)")
+                try:
+                    workspaces = admin_usage_client.list_workspaces()
+                    usage = admin_usage_client.fetch_usage(starting_at, ending_at)
+                except admin_usage_client.MissingAdminKey as e:
+                    return _send_error(self, 400, str(e))
+                except urllib.error.HTTPError as e:
+                    return _send_error(self, 502, f"Admin API error {e.code}: {e.reason}")
+                except urllib.error.URLError as e:
+                    return _send_error(self, 502, f"Admin API unreachable: {e.reason}")
+                # Compute cost deterministically per usage row from pricing.json
+                # rather than relying on cost_report. cost_report aggregates
+                # org-wide and frequently returns workspace_id=null even when
+                # usage is per-workspace, which makes any redistribution wrong.
+                merged = []
+                for u in usage:
+                    c = cost_for(u.get("model") or "", u, pricing)
+                    merged.append(dict(u, cost_usd=float(c["usd"] or 0.0)))
+                # Anthropic returns workspace_id=null for org-level / default-
+                # workspace activity (e.g., keys not scoped to a workspace).
+                # Surface that as a synthetic row so its spend isn't hidden.
+                if any((u.get("workspace_id") or "") == "" for u in merged):
+                    if not any((w.get("id") or "") == "" for w in workspaces):
+                        workspaces.append({
+                            "id": "",
+                            "name": "(Default / unattributed)",
+                            "type": "synthetic",
+                        })
+                ts = time.time()
+                with connect(db_path) as conn:
+                    try:
+                        n_ws = upsert_workspaces(conn, workspaces, ts)
+                        n_rows = upsert_admin_usage(conn, merged, ts)
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+                EVENTS.put({
+                    "type": "workspaces-refresh",
+                    "n": {"workspaces": n_ws, "usage_rows": n_rows},
+                    "ts": ts,
+                })
+                return _send_json(self, {
+                    "ok": True,
+                    "workspaces": n_ws,
+                    "usage_rows": n_rows,
+                    "last_synced_at": ts,
+                })
             self.send_response(404)
             self.end_headers()
 
